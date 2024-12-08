@@ -1,4 +1,3 @@
-#include <vector>
 #include <iostream>
 #include <cmath>
 #include <random>
@@ -9,16 +8,14 @@
 #include <fstream>
 #include <numeric>
 
-#include "config.h"
+#include "settings.h"
 #include "functions.h"
-
-
 
 
 std::random_device rd;
 std::mt19937 gen(rd());
 std::bernoulli_distribution distribution(0.5);
-std::uniform_real_distribution<> realDist(0.0, 0.1);
+std::uniform_real_distribution<> realDist(0.0, 1);
 
 int bestVersion = 0;
 Config settings;
@@ -80,7 +77,7 @@ double EvalFitness(double eval) {
         return (eval != 0) ? 1.0 / eval : 1e6;
         break;
     case function::Michalewicz:
-        return -eval;
+        return exp(-0.025*eval);
         break;
 
     case function::Schwefel:
@@ -102,53 +99,53 @@ double EvalFitness(double eval) {
 
 
 std::vector<double> CummulativeFitness(std::vector<Result> eval) {
-    std::vector<double> result;
-    double sum;
+    std::vector<double> helper, result;
+    double sum = 0;
     for (int i = 0; i < eval.size(); i++) {
-        sum += eval[i].eval;
+        sum += eval[i].fitness;
     }
     for (int i = 0; i < eval.size(); i++) {
-        result[i] = eval[i].eval / sum;
+        result.push_back(eval[i].fitness / sum);
     }
     for (int i = 1; i < eval.size(); i++) {
-        result[i] = eval[i].eval + eval[i - 1].eval;
+        result[i] = result[i-1] + result[i];
 
     }
 
     return result;
 }
 
-Result InitSelection(std::vector<double> eval, std::vector<Result> population) {
-    double randomDouble;
-    int j = 0;
+Result InitSelection(std::vector<double> eval, std::vector<Result> population) { 
     Result result;
     for (int i = 1; i < eval.size(); i++) {
-        randomDouble = realDist(gen);
-        if (eval[0] >= randomDouble) {
-            result = population[0];
-            j++;
-            break;
+        double randomDouble = realDist(gen);
+        if (eval[0] >= randomDouble > 0) {
+            return population[0];
         }
-        if (eval[eval.size()-1] < randomDouble) {
-            result = population[population.size()];
-            j++;
-            break;
+        if ((eval[eval.size()-1] < randomDouble)) {
+            return population[population.size()-1];
+
         }
         if (eval[i - 1] < randomDouble <= eval[i]) {
-            result = population[i];
-            break;
+            return population[i];
+           
         }
+
     }
 
 }
-
-
+bitstring Swap_Ranges(bitstring C1, bitstring C2, int j) {
+    for (int i = j; i < C1.size(); i++) {
+        C1[i] = C2[i];
+ }
+    return C1;
+}
 std::vector<bitstring> crossOver(std::vector<Result>population, std::vector<double> q) {
 
     double p = realDist(gen);
-    double prob1, prob2;
-    int size = population.size();
-    bitstring C1, C2;
+    double prob1;
+    int size = q.size();
+    bitstring C1, C2, C1c, C2c;
     std::vector<bitstring> results;
     int j1, j2;
     
@@ -158,14 +155,14 @@ std::vector<bitstring> crossOver(std::vector<Result>population, std::vector<doub
             prob1 = realDist(gen);
             while (diffrent == false) {
 
-                prob2 = realDist(gen);
+                double prob2 = realDist(gen);
 
-                for (int j = 0; j < size; ++j) {
+                for (int j = 0; j < size-1; ++j) {
                     if (q[0] >= prob1) {
                         j1 = 0;
                     }
                     if (q[0] >= prob2) {
-                        j1 = 0;
+                        j2 = 0;
                     }
 
                     if (q[q.size()-1] < prob1) {
@@ -173,7 +170,7 @@ std::vector<bitstring> crossOver(std::vector<Result>population, std::vector<doub
                     }
 
                     if (q[q.size() - 1] < prob1) {
-                        j1 = q.size() - 1;
+                        j2 = q.size() - 1;
                     }
 
                     if (q[j] < prob1 && prob1 <= q[j + 1])
@@ -184,23 +181,28 @@ std::vector<bitstring> crossOver(std::vector<Result>population, std::vector<doub
 
                 }
 
+
+
                 if (j1 != j2)diffrent = true;
 
             }
 
        
+            C1 = population[j1].individual;
+            C2 = population[j2].individual;
+        
 
-            std::copy(population[j1].individual[0], population[j1].individual[population[j1].individual.size() - 1], C1);
-            std::copy(population[j2].individual[0], population[j2].individual[population[j2].individual.size() - 1], C1);
 
             if (prob < 0.8) {
                 while (!swapped) {
 
                     for (int j = 0; j < C1.size(); ++j) {
                         double crossProb = realDist(gen);
-                        if (crossProb < 1 / C1.size()) {
-
-                            std::swap_ranges(C1[j], C1[C1.size() - 1], C2[j]);
+                        double crossProbThreshold = 5.0 / C1.size();
+                        if (crossProb <crossProbThreshold) {
+                            C1c = C1;
+                            C1 = Swap_Ranges(C1, C2, j);
+                            C2 = Swap_Ranges(C2, C1c, j);
                             swapped = true;
                         }
 
@@ -209,18 +211,15 @@ std::vector<bitstring> crossOver(std::vector<Result>population, std::vector<doub
 
                 }
 
-                results.push_back(C1);
-                results.push_back(C2);
-                C1.clear();
-                C2.clear();
-                return results;
-            
-
             }
 
 
     
-
+            results.push_back(C1);
+            results.push_back(C2);
+            C1.clear();
+            C2.clear();
+            return results;
 
 
 }
@@ -231,7 +230,8 @@ bitstring mutateInstance(bitstring candidate) {
     while (!mutated) {
         for (int i = 0; i < candidate.size(); ++i) {
             double p = realDist(gen);
-            if (p < (1 / candidate.size())) {
+            double mutateProb = 1.0 / candidate.size();
+            if (p < mutateProb) {
                 candidate[i] = !candidate[i];
                 mutated = true;
 
@@ -252,10 +252,9 @@ Result initpop() {
 }
 
 std::vector<Result> individual(std::vector<Result> population, std::vector<double>cummulativeFitness) {
-    std::vector<Result> result;
-    std::vector<bitstring> instances;
-    std::vector<double> candidates, fitnesses;
-    double candidate0, candidate1;
+    std::vector<Result> result(2);
+    std::vector<bitstring> instances(2);
+    std::vector<double> candidates(2), fitnesses(2);
     instances = crossOver(population, cummulativeFitness);
     result[0].individual = mutateInstance(instances[0]);
     result[1].individual = mutateInstance(instances[1]);
@@ -273,11 +272,12 @@ double FindMin(std::vector<Result> population) {
             min = population[i].eval;
         }
     }
+    return min;
 }
 int main()
 {
 
-    settings.func = function::Rastrigin;
+    settings.func = function::Michalewicz;
     settings.d = 5;
    
     switch (settings.func)
@@ -316,7 +316,7 @@ int main()
     settings.pop = 200;
     int samples = 1;
     int counter = 0;
-    int nthreads = std::thread::hardware_concurrency();
+     int nthreads = std::thread::hardware_concurrency();
     constexpr double inf{ std::numeric_limits<double>::infinity() };
     std::vector<double> sampleCandidates(samples);
     std::vector<double> sampleRuntimeDurations(samples);
@@ -328,8 +328,8 @@ int main()
     while (counter < samples) {
         double minCandidate;
         std::vector<std::future<Result>> futures1(nthreads);
-        std::vector<Result> gen0p(settings.pop * 2); 
-        std::vector<Result> gen0(settings.pop);
+        std::vector<Result> gen0p; 
+        std::vector<Result> gen0;
         std::vector<double> cummulativeFitnesses;
         int iterationCount = 0;
         int popcount = 0;
@@ -340,8 +340,8 @@ int main()
                 futures1[i] = std::async(initpop);
             }
 
-            for (int i = 0; i <i; i++) { 
-                gen0p[popcount+i] = futures1[i].get();
+            for (int i = 0; i < nthreads; i++) {
+                gen0p.push_back(futures1[i].get());
             }
             popcount += nthreads; 
         }
@@ -356,11 +356,13 @@ int main()
             }
 
             for (int i = 0; i < nthreads; i++) {
-                gen0[i] = futures1[i].get();
+                gen0.push_back(futures1[i].get());
             }
             popcount += nthreads;
         }
         double bestcandidate = FindMin(gen0);
+        std::cout << "BEST CANDIDATE OF GENERATION 0: " << bestcandidate << "\n";
+
         cummulativeFitnesses.clear();
         cummulativeFitnesses = CummulativeFitness(gen0);
         auto start = std::chrono::high_resolution_clock::now();
@@ -369,22 +371,31 @@ int main()
         //start the loop
         while (iterationCount < settings.it) {
             popcount = 0;
+            cummulativeFitnesses.clear();
+            cummulativeFitnesses = CummulativeFitness(gen0);
             std::vector<std::future<std::vector<Result>>> futures(nthreads);
             std::vector<std::vector<Result>> candidates(nthreads);
            
             // generate new population
             while (popcount < settings.pop) {
-                for (int i = 0; i < nthreads; i++) {
+                int i = 0;
+                for (i = 0; i < nthreads; i++) {
                     futures[i] = std::async(individual, gen0, cummulativeFitnesses);
                 }
 
 
-                
-                for (int i = 0; i < nthreads; i++) {
+     
+                for (i = 0; i < nthreads; i++) {
                     candidates[i] = futures[i].get();
                     //place new population together with old population
-                    gen0.insert(gen0.end(), candidates[i].begin(), candidates[i].end());
+                    for (int j = 0; j < 2; j++) {
+                        if (settings.pop + popcount + i < settings.pop * 2 - 1) {
+                            gen0.push_back(candidates[i][j]);
+                        }
+                    }
+                    //gen0.insert(gen0.begin()+settings.pop, candidates[i].begin(), candidates[i].end());
                 }
+                popcount += nthreads;
             }
 
             //free up old initial population, move the total population in it, then free up current population to use for next run
@@ -401,23 +412,20 @@ int main()
                 }
 
                 for (int i = 0; i < nthreads; i++) {
-                    gen0[popcount+i] = futures1[i].get();
+                    gen0.push_back(futures1[i].get());
                 }
                 popcount += nthreads;
             }
-            minCandidate = FindMin(gen0);
 
-
-           
-
-
-           // double bestcandidate = *std::min_element(evals.begin(), evals.end());
+minCandidate = FindMin(gen0);
 
             if (minCandidate < bestcandidate) {
                 bestcandidate = minCandidate;
-            }
+            }   
 
             iterationCount += 1;
+            std::cout << "BEST CANDIDATE OF GENERATION " << iterationCount << ": " << minCandidate << "/BEST OVERALL CANDIDATE:" << bestcandidate << "\n";
+           ;
             double lowest = *std::min_element(sampleCandidates.begin(), sampleCandidates.end());
 
         }
